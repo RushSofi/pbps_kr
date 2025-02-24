@@ -1,0 +1,13 @@
+[Unit]
+Description=PICOFoxweb Lightweight Web Server
+After=network.target 
+
+[Service]
+ExecStart=/usr/local/sbin/PICOFoxweb
+KillMode=process
+User=www-data
+Group=www-data
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
