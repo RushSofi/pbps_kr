@@ -1,19 +1,57 @@
 #include "httpd.h"
 #include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <pwd.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <grp.h>
+#include <fcntl.h>  // Добавлено для O_CREAT, O_WRONLY
+#include <syslog.h> 
 
-#define CHUNK_SIZE 1024 // read 1024 bytes at a time
-
-// Public directory settings
-#define PUBLIC_DIR "/var/www/foxweb/webroot"
+#define CHUNK_SIZE 1024
+#define CHROOT_DIR "/var/www/foxweb-jail"
+#define PUBLIC_DIR "/webroot"
 #define INDEX_HTML "/index.html"
 #define NOT_FOUND_HTML "/404.html"
 #define LOG_FILE "/var/log/foxweb.log"
 
+void drop_privileges() {
+	// Проверяем существование /etc/passwd в chroot
+    if (access("/etc/passwd", F_OK) != 0) {
+        fprintf(stderr, "/etc/passwd not found in chroot\n");
+        exit(1);
+    }
+
+    struct passwd *pw = getpwnam("www-data");
+    if (!pw) {
+        perror("Failed to get www-data user");
+	system("cat /etc/passwd");
+        exit(1);
+    }
+
+    // Устанавливаем дополнительные группы
+    if (initgroups(pw->pw_name, pw->pw_gid) < 0) {
+        perror("initgroups failed");
+        exit(1);
+    }
+
+    // Сначала GID, потом UID
+    if (setgid(pw->pw_gid) < 0) {
+        perror("setgid failed");
+        exit(1);
+    }
+    
+    if (setuid(pw->pw_uid) < 0) {
+        perror("setuid failed");
+        exit(1);
+    }
+}
+
 void log_request(const char *method, const char *uri, int status, int response_size) {
     FILE *log_fp = fopen(LOG_FILE, "a");
     if (!log_fp) {
-        syslog(LOG_ERR, "Cannot open log file");
+        perror("Cannot open log file");
         return;
     }
 
@@ -31,18 +69,37 @@ void log_request(const char *method, const char *uri, int status, int response_s
     const char *user_agent = request_header("User-Agent");
     if (!user_agent) user_agent = "-";
 
-    char log_entry[512];  
-    snprintf(log_entry, sizeof(log_entry), "%s - - [%s] \"%s %s HTTP/1.1\" %d %d \"%s\" \"%s\"\n",
-             ip_addr, time_str, method, uri, status, response_size, referer, user_agent);
+    fprintf(log_fp, "%s - - [%s] \"%s %s HTTP/1.1\" %d %d \"%s\" \"%s\"\n",
+            ip_addr, time_str, method, uri, status, response_size, referer, user_agent);
 
-    fprintf(log_fp, "%s", log_entry);
     fclose(log_fp);
 }
 
-int main(int c, char **v) {
-  char *port = c == 1 ? "8000" : v[1];
-  serve_forever(port);
-  return 0;
+int main(int argc, char **argv) {
+    char *port = (argc == 1) ? "8000" : argv[1];
+
+    // Проверяем, находимся ли мы уже в chroot
+    if (access("/.chroot_test", F_OK) != 0) {
+        // Если не в chroot - проверяем root и выполняем chroot
+        if (getuid() != 0) {
+            fprintf(stderr, "Must be run as root to chroot\n");
+            return 1;
+        }
+        
+        if (chroot(CHROOT_DIR) != 0) {
+            perror("chroot failed");
+            return 1;
+        }
+        chdir("/");
+        
+        // Создаем маркер, что мы в chroot (упрощенная версия)
+        FILE *f = fopen("/.chroot_test", "w");
+        if (f) fclose(f);
+    }
+
+    drop_privileges();
+    serve_forever(port);
+    return 0;
 }
 
 int file_exists(const char *file_name) {
@@ -76,8 +133,8 @@ void route() {
   ROUTE_START()
 
   GET("/") {
-    char index_html[20];
-    sprintf(index_html, "%s%s", PUBLIC_DIR, INDEX_HTML);
+    char index_html[255];
+    snprintf(index_html, sizeof(index_html), "%s%s", PUBLIC_DIR, INDEX_HTML);
 
     HTTP_200;
     if (file_exists(index_html)) {
@@ -112,7 +169,7 @@ void route() {
 
   GET(uri) {
     char file_name[255];
-    sprintf(file_name, "%s%s", PUBLIC_DIR, uri);
+    snprintf(file_name, sizeof(file_name), "%s%s", PUBLIC_DIR, uri);
 
     if (file_exists(file_name)) {
       HTTP_200;
@@ -120,10 +177,11 @@ void route() {
       log_request("GET", uri, 200, CHUNK_SIZE);
     } else {
       HTTP_404;
-      sprintf(file_name, "%s%s", PUBLIC_DIR, NOT_FOUND_HTML);
-      if (file_exists(file_name))
+      snprintf(file_name, sizeof(file_name), "%s%s", PUBLIC_DIR, NOT_FOUND_HTML);
+      if (file_exists(file_name)) {
         read_file(file_name);
-        log_request("GET", uri, 404, 0);
+      }
+      log_request("GET", uri, 404, 0);
     }
   }
 

@@ -1,13 +1,16 @@
 [Unit]
 Description=PICOFoxweb Lightweight Web Server
-After=network.target 
+After=network.target
 
 [Service]
-ExecStart=/usr/local/sbin/PICOFoxweb
-KillMode=process
-User=www-data
-Group=www-data
-Restart=always
+Type=simple
+ExecStart=/usr/local/sbin/PICOFoxweb 8000
+WorkingDirectory=/var/www/foxweb-jail
+RootDirectory=/var/www/foxweb-jail
+User=root
+Group=root
+Restart=on-failure
+RestartSec=5s
 
 [Install]
 WantedBy=multi-user.target
