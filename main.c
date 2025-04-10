@@ -22,30 +22,6 @@ void drop_privileges() {
         fprintf(stderr, "/etc/passwd not found in chroot\n");
         exit(1);
     }
-
-    struct passwd *pw = getpwnam("www-data");
-    if (!pw) {
-        perror("Failed to get www-data user");
-	system("cat /etc/passwd");
-        exit(1);
-    }
-
-    // Устанавливаем дополнительные группы
-    if (initgroups(pw->pw_name, pw->pw_gid) < 0) {
-        perror("initgroups failed");
-        exit(1);
-    }
-
-    // Сначала GID, потом UID
-    if (setgid(pw->pw_gid) < 0) {
-        perror("setgid failed");
-        exit(1);
-    }
-    
-    if (setuid(pw->pw_uid) < 0) {
-        perror("setuid failed");
-        exit(1);
-    }
 }
 
 void log_request(const char *method, const char *uri, int status, int response_size) {
