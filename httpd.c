@@ -33,6 +33,11 @@ char *method, // "GET" or "POST"
 int payload_size;
 
 void serve_forever(const char *PORT) {
+  if (chroot("/var/www/foxweb") == -1) {
+    syslog(LOG_ERR, "Chroot error");
+    exit(EXIT_FAILURE);
+  }
+
   struct sockaddr_in clientaddr;
   socklen_t addrlen;
 
@@ -50,7 +55,7 @@ void serve_forever(const char *PORT) {
   for (i = 0; i < MAX_CONNECTIONS; i++)
     clients[i] = -1;
   start_server(PORT);
-
+  
   // Ignore SIGCHLD to avoid zombie threads
   signal(SIGCHLD, SIG_IGN);
 
@@ -60,7 +65,7 @@ void serve_forever(const char *PORT) {
     clients[slot] = accept(listenfd, (struct sockaddr *)&clientaddr, &addrlen);
 
     if (clients[slot] < 0) {
-      syslog(LOG_INFO, "accept() error");
+      syslog(LOG_ERR, "accept() error");
       exit(1);
     } else {
       if (fork() == 0) {

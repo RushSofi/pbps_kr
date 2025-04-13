@@ -1,12 +1,14 @@
 [Unit]
-Description=PICOFoxweb Lightweight Web Server
-After=network.target
+Description=PICO Foxweb Service
+After=network.target 
 
 [Service]
-ExecStart=/usr/local/sbin/PICOFoxweb 8000
+ExecStart=/usr/local/sbin/PICOFoxweb 8080
 KillMode=process
 User=root
 Group=root
+StandardOutput=file:/var/www/foxweb/logs/foxweb.log
+StandardError=file:/var/www/foxweb/logs/foxweb.log
 
 [Install]
 WantedBy=multi-user.target
